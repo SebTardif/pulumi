@@ -53,57 +53,64 @@ var (
 )
 
 var (
-	sinkMu sync.RWMutex
-	sink   io.Writer
+	sinkMu       sync.RWMutex
+	sink         io.Writer
+	sinkMaxLevel glog.Level = 10
 )
 
-// SetSink sets a writer that receives a copy of all log messages,
-// regardless of the current glog verbosity level. This is used by
-// the encrypted logging system to capture full diagnostic output.
-// The writer must be safe for concurrent use.
-func SetSink(w io.Writer) {
+// SetSink sets a writer that receives a copy of all log messages at or
+// below maxLevel. Pass 0 for maxLevel when clearing the sink.
+func SetSink(w io.Writer, maxLevel glog.Level) {
 	sinkMu.Lock()
 	defer sinkMu.Unlock()
 	sink = w
+	sinkMaxLevel = maxLevel
 }
 
-// HasSink returns true if a log sink is currently set.
-func HasSink() bool {
+func hasSink() bool {
 	sinkMu.RLock()
 	defer sinkMu.RUnlock()
-	has := sink != nil
-	return has
+	return sink != nil
 }
 
 func writeToSink(severity, msg string) {
-	sinkMu.Lock()
-	defer sinkMu.Unlock()
-	w := sink
-	if w != nil {
-		// Format similar to glog: severity timestamp message
+	sinkMu.RLock()
+	defer sinkMu.RUnlock()
+	if sink != nil {
 		ts := time.Now().Format("15:04:05.000000")
-		// Best effort — don't block the caller on sink errors.
-		_, _ = fmt.Fprintf(w, "%s %s %s\n", severity, ts, msg)
+		_, _ = fmt.Fprintf(sink, "%s %s %s\n", severity, ts, msg)
+	}
+}
+
+func writeToSinkf(severityFmt string, level glog.Level, msg string) {
+	sinkMu.RLock()
+	defer sinkMu.RUnlock()
+	if sink != nil {
+		ts := time.Now().Format("15:04:05.000000")
+		_, _ = fmt.Fprintf(sink, "%s %s %s\n", fmt.Sprintf(severityFmt, level), ts, msg)
 	}
 }
 
 // VerboseLogger logs messages only if verbosity matches the level it was built with.
-//
-// It may be used as a boolean to check if it's enabled.
-//
-//	if log := logging.V(lvl); log {
-//		log.Infoln(expensiveComputation())
-//	}
-type VerboseLogger glog.Verbose
+type VerboseLogger struct {
+	gv    glog.Verbose // whether glog wants this level
+	sink  bool         // whether the sink wants this level
+	level glog.Level
+}
+
+// Enabled returns true if either glog or the sink wants this level.
+func (v VerboseLogger) Enabled() bool { return bool(v.gv) || v.sink }
 
 // Info is equivalent to the global Info function, guarded by the value of v.
 // See the documentation of V for usage.
 func (v VerboseLogger) Info(args ...any) {
-	if bool(v) || HasSink() {
+	if v.Enabled() {
 		msg := FilterString(fmt.Sprint(args...))
-		writeToSink("I", msg)
-		if v {
-			glog.Verbose(v).InfoDepth(1, msg)
+		if v.sink {
+			writeToSinkf("I%d", v.level, msg)
+		}
+		if v.gv {
+			v.gv.InfoDepth(1, msg)
 		}
 	}
 }
@@ -111,11 +118,13 @@ func (v VerboseLogger) Info(args ...any) {
 // Infoln is equivalent to the global Infoln function, guarded by the value of v.
 // See the documentation of V for usage.
 func (v VerboseLogger) Infoln(args ...any) {
-	if bool(v) || HasSink() {
+	if v.Enabled() {
 		msg := FilterString(fmt.Sprint(args...))
-		writeToSink("I", msg)
-		if v {
-			glog.Verbose(v).Infoln(msg)
+		if v.sink {
+			writeToSinkf("I%d", v.level, msg)
+		}
+		if v.gv {
+			v.gv.Infoln(msg)
 		}
 	}
 }
@@ -123,18 +132,20 @@ func (v VerboseLogger) Infoln(args ...any) {
 // Infof is equivalent to the global Infof function, guarded by the value of v.
 // See the documentation of V for usage.
 func (v VerboseLogger) Infof(format string, args ...any) {
-	if bool(v) || HasSink() {
+	if v.Enabled() {
 		msg := FilterString(fmt.Sprintf(format, args...))
-		writeToSink("I", msg)
-		if v {
-			glog.Verbose(v).InfoDepthf(1, "%s", msg)
+		if v.sink {
+			writeToSinkf("I%d", v.level, msg)
+		}
+		if v.gv {
+			v.gv.InfoDepthf(1, "%s", msg)
 		}
 	}
 }
 
 // V builds a logger that logs messages only if verbosity is at least at the provided level.
 func V(level glog.Level) VerboseLogger {
-	return VerboseLogger(glog.V(level))
+	return VerboseLogger{gv: glog.V(level), sink: hasSink() && level <= sinkMaxLevel, level: level}
 }
 
 func Errorf(format string, args ...any) {
