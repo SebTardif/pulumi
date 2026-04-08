@@ -79,9 +79,9 @@ runtime: nodejs`)
 
 	raw, err := os.ReadFile(logFile)
 	require.NoError(t, err)
-	assert.NotContains(t, string(raw), "Pulumi")
+	assert.NotContains(t, string(raw), "CLI Metadata")
 
 	stdout, _ := e.RunCommand("pulumi", "logs", "decrypt", logFile)
 
-	assert.Contains(t, stdout, "Pulumi")
+	assert.Contains(t, stdout, "CLI Metadata")
 }

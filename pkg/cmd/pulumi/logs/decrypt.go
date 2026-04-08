@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -104,7 +105,7 @@ func newDecryptCmd(ws pkgWorkspace.Context) *cobra.Command {
 			}
 			defer gz.Close()
 
-			if _, err := io.Copy(out, gz); err != nil {
+			if _, err := io.Copy(out, gz); err != nil { //nolint:gosec // user's own log file
 				return fmt.Errorf("decompressing log: %w", err)
 			}
 			return nil
@@ -180,7 +181,7 @@ func secretsManagerFromStack(ctx context.Context, s backend.Stack) (secrets.Mana
 		return nil, fmt.Errorf("exporting deployment: %w", err)
 	}
 	if dep == nil || len(dep.Deployment) == 0 {
-		return nil, fmt.Errorf("stack has no deployment")
+		return nil, errors.New("stack has no deployment")
 	}
 
 	var v3 apitype.DeploymentV3
@@ -188,7 +189,7 @@ func secretsManagerFromStack(ctx context.Context, s backend.Stack) (secrets.Mana
 		return nil, fmt.Errorf("unmarshaling deployment: %w", err)
 	}
 	if v3.SecretsProviders == nil {
-		return nil, fmt.Errorf("deployment has no secrets provider configured")
+		return nil, errors.New("deployment has no secrets provider configured")
 	}
 
 	provider := backend_secrets.NamedStackProvider{StackName: s.Ref().Name().String()}

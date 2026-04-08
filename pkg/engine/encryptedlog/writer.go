@@ -62,19 +62,7 @@ func NewWriter(
 		return nil, fmt.Errorf("encryptedlog: encrypting session key: %w", err)
 	}
 
-	encryptedKeyBytes := []byte(encryptedKey)
-	if len(encryptedKeyBytes) > 65535 {
-		return nil, fmt.Errorf("encryptedlog: encrypted key too large (%d bytes)", len(encryptedKeyBytes))
-	}
-
-	// Write the PLOG header: magic + version + key length + key.
-	header := make([]byte, 0, len(Magic)+1+2+len(encryptedKeyBytes))
-	header = append(header, Magic...)
-	header = append(header, Version)
-	//nolint:gosec // bounded by 65535 check above
-	header = binary.BigEndian.AppendUint16(header, uint16(len(encryptedKeyBytes)))
-	header = append(header, encryptedKeyBytes...)
-	if _, err := w.Write(header); err != nil {
+	if err := WriteHeader(w, []byte(encryptedKey)); err != nil {
 		return nil, fmt.Errorf("encryptedlog: writing header: %w", err)
 	}
 
