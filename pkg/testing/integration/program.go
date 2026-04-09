@@ -310,6 +310,11 @@ type ProgramTestOptions struct {
 	YarnBin string
 	// BunBin is a location of a `bun` executable to be run.  Taken from the $PATH if missing.
 	BunBin string
+	// PnpmBin is a location of a `pnpm` executable to be run.  Taken from the $PATH if missing.
+	PnpmBin string
+	// UsePnpm prepares Node.js projects with pnpm instead of yarn. Equivalent to setting the
+	// PULUMI_TEST_USE_PNPM environment variable for this test.
+	UsePnpm bool
 	// GoBin is a location of a `go` executable to be run.  Taken from the $PATH if missing.
 	GoBin string
 	// PythonBin is a location of a `python` executable to be run.  Taken from the $PATH if missing.
@@ -894,6 +899,7 @@ type ProgramTester struct {
 	bin            string              // the `pulumi` binary we are using.
 	yarnBin        string              // the `yarn` binary we are using.
 	bunBin         string              // the `bun` binary we are using.
+	pnpmBin        string              // the `pnpm` binary we are using.
 	goBin          string              // the `go` binary we are using.
 	pythonBin      string              // the `python` binary we are using.
 	pipenvBin      string              // The `pipenv` binary we are using.
@@ -947,6 +953,10 @@ func (pt *ProgramTester) getYarnBin() (string, error) {
 
 func (pt *ProgramTester) getBunBin() (string, error) {
 	return getCmdBin(&pt.bunBin, "bun", pt.opts.BunBin)
+}
+
+func (pt *ProgramTester) getPnpmBin() (string, error) {
+	return getCmdBin(&pt.pnpmBin, "pnpm", pt.opts.PnpmBin)
 }
 
 func (pt *ProgramTester) getGoBin() (string, error) {
@@ -1024,6 +1034,16 @@ func (pt *ProgramTester) yarnCmd(args []string) ([]string, error) {
 
 func (pt *ProgramTester) bunCmd(args []string) ([]string, error) {
 	bin, err := pt.getBunBin()
+	if err != nil {
+		return nil, err
+	}
+	result := slice.Prealloc[string](1 + len(args))
+	result = append(result, bin)
+	return append(result, args...), nil
+}
+
+func (pt *ProgramTester) pnpmCmd(args []string) ([]string, error) {
+	bin, err := pt.getPnpmBin()
 	if err != nil {
 		return nil, err
 	}
@@ -1179,6 +1199,33 @@ func (pt *ProgramTester) runBunCommand(name string, args []string, wd string) er
 				return true, nil, nil
 			} else if _, ok := runerr.(*exec.ExitError); ok {
 				// bun failed, let's try again, assuming we haven't failed a few times.
+				if try+1 >= 3 {
+					return false, nil, fmt.Errorf("%v did not complete after %v tries", cmd, try+1)
+				}
+
+				return false, nil, nil
+			}
+
+			// someother error, fail
+			return false, nil, runerr
+		},
+	})
+	return err
+}
+
+func (pt *ProgramTester) runPnpmCommand(name string, args []string, wd string) error {
+	cmd, err := pt.pnpmCmd(args)
+	if err != nil {
+		return err
+	}
+
+	_, _, err = retry.Until(context.Background(), retry.Acceptor{
+		Accept: func(try int, nextRetryTime time.Duration) (bool, any, error) {
+			runerr := pt.runCommand(name, cmd, wd)
+			if runerr == nil {
+				return true, nil, nil
+			} else if _, ok := runerr.(*exec.ExitError); ok {
+				// pnpm failed, let's try again, assuming we haven't failed a few times.
 				if try+1 >= 3 {
 					return false, nil, fmt.Errorf("%v did not complete after %v tries", cmd, try+1)
 				}
@@ -2172,17 +2219,16 @@ func (pt *ProgramTester) copyTestToTemporaryDirectory() (string, string, error) 
 
 	// TODO[pulumi/pulumi#5455]: Dynamic providers fail to load when used from multi-lang components.
 	// Until that's been fixed, this environment variable can be set by a test, which results in
-	// a package.json being emitted in the project directory and `yarn install && yarn link @pulumi/pulumi`
-	// being run.
+	// a package.json being emitted in the project directory and the locally-built SDK being linked.
 	// When the underlying issue has been fixed, the use of this environment variable should be removed.
-	var yarnLinkPulumi bool
+	var linkPulumi bool
 	for _, env := range pt.opts.Env {
 		if env == "PULUMI_TEST_YARN_LINK_PULUMI=true" {
-			yarnLinkPulumi = true
+			linkPulumi = true
 			break
 		}
 	}
-	if yarnLinkPulumi {
+	if linkPulumi {
 		const packageJSON = `{
 			"name": "test",
 			"peerDependencies": {
@@ -2192,11 +2238,20 @@ func (pt *ProgramTester) copyTestToTemporaryDirectory() (string, string, error) 
 		if err := os.WriteFile(filepath.Join(projdir, "package.json"), []byte(packageJSON), 0o600); err != nil {
 			return "", "", err
 		}
-		if err := pt.runYarnCommand("yarn-link", []string{"link", "@pulumi/pulumi"}, projdir); err != nil {
-			return "", "", err
-		}
-		if err = pt.runYarnCommand("yarn-install", []string{"install"}, projdir); err != nil {
-			return "", "", err
+		if pt.opts.UsePnpm || usePnpmEnv() {
+			if err := pt.runPnpmCommand("pnpm-link", []string{"link", "--global", "@pulumi/pulumi"}, projdir); err != nil {
+				return "", "", err
+			}
+			if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, projdir); err != nil {
+				return "", "", err
+			}
+		} else {
+			if err := pt.runYarnCommand("yarn-link", []string{"link", "@pulumi/pulumi"}, projdir); err != nil {
+				return "", "", err
+			}
+			if err = pt.runYarnCommand("yarn-install", []string{"install"}, projdir); err != nil {
+				return "", "", err
+			}
 		}
 	}
 
@@ -2312,6 +2367,95 @@ func (pt *ProgramTester) prepareNodeJSProject(projinfo *engine.Projinfo) error {
 	if pt.opts.RunBuild {
 		// And finally compile it using whatever build steps are in the package.json file.
 		if err = pt.runYarnCommand("yarn-build", []string{"run", "build"}, cwd); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// preparePnpmProject runs setup necessary to get a Node.js project ready for `pulumi` commands using pnpm.
+func (pt *ProgramTester) preparePnpmProject(projinfo *engine.Projinfo) error {
+	// Get the correct pwd to run pnpm in.
+	cwd, _, err := projinfo.GetPwdMain()
+	if err != nil {
+		return err
+	}
+
+	workspaceRoot, err := npm.FindWorkspaceRoot(cwd)
+	if err != nil {
+		if !errors.Is(err, npm.ErrNotInWorkspace) {
+			return err
+		}
+		// Not in a workspace, don't updated cwd.
+	} else {
+		pt.t.Logf("detected workspace root at %s", workspaceRoot)
+		cwd = workspaceRoot
+	}
+
+	// If dev versions were requested, we need to update the
+	// package.json to use them.  Note that Overrides take
+	// priority over installing dev versions.
+	if pt.opts.InstallDevReleases {
+		err := pt.runPnpmCommand("pnpm-add", []string{"add", "@pulumi/pulumi@dev"}, cwd)
+		if err != nil {
+			return err
+		}
+	}
+
+	// If the test requested some packages to be overridden, we do two things. First, if the package is listed as a
+	// direct dependency of the project, we change the version constraint in the package.json. For transitive
+	// dependencies, we use pnpm's "overrides" feature to force them to a specific version.
+	if len(pt.opts.Overrides) > 0 {
+		packageJSON, err := readPackageJSON(cwd)
+		if err != nil {
+			return err
+		}
+
+		overrides := make(map[string]any)
+
+		for packageName, packageVersion := range pt.opts.Overrides {
+			for _, section := range []string{"dependencies", "devDependencies"} {
+				if _, has := packageJSON[section]; has {
+					entry := packageJSON[section].(map[string]any)
+
+					if _, has := entry[packageName]; has {
+						entry[packageName] = packageVersion
+					}
+				}
+			}
+
+			pt.t.Logf("adding override for %s to version %s", packageName, packageVersion)
+			overrides[packageName] = packageVersion
+		}
+
+		// Wack any existing pnpm.overrides section with our newly computed one.
+		pnpmCfg, _ := packageJSON["pnpm"].(map[string]any)
+		if pnpmCfg == nil {
+			pnpmCfg = make(map[string]any)
+		}
+		pnpmCfg["overrides"] = overrides
+		packageJSON["pnpm"] = pnpmCfg
+
+		if err := writePackageJSON(cwd, packageJSON); err != nil {
+			return err
+		}
+	}
+
+	// Now ensure dependencies are present.
+	if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, cwd); err != nil {
+		return err
+	}
+
+	if !pt.opts.RunUpdateTest {
+		if err = pt.pnpmLinkPackageDeps(cwd); err != nil {
+			return err
+		}
+	}
+
+	if pt.opts.RunBuild {
+		// And finally compile it using whatever build steps are in the package.json file.
+		if err = pt.runPnpmCommand("pnpm-build", []string{"run", "build"}, cwd); err != nil {
 			return err
 		}
 	}
@@ -2538,6 +2682,16 @@ func (pt *ProgramTester) yarnLinkPackageDeps(cwd string) error {
 func (pt *ProgramTester) bunLinkPackageDeps(cwd string) error {
 	for _, dependency := range pt.opts.Dependencies {
 		if err := pt.runBunCommand("bun-link", []string{"link", dependency}, cwd); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (pt *ProgramTester) pnpmLinkPackageDeps(cwd string) error {
+	for _, dependency := range pt.opts.Dependencies {
+		if err := pt.runPnpmCommand("pnpm-link", []string{"link", "--global", dependency}, cwd); err != nil {
 			return err
 		}
 	}
@@ -2854,10 +3008,20 @@ func (pt *ProgramTester) prepareJavaProject(projinfo *engine.Projinfo) error {
 	return nil
 }
 
+// usePnpmEnv reports whether the PULUMI_TEST_USE_PNPM environment variable opts the test
+// suite into using pnpm to prepare Node.js projects instead of yarn.
+func usePnpmEnv() bool {
+	v := os.Getenv("PULUMI_TEST_USE_PNPM")
+	return v != "" && v != "0" && v != "false"
+}
+
 func (pt *ProgramTester) defaultPrepareProject(projinfo *engine.Projinfo) error {
 	// Based on the language, invoke the right routine to prepare the target directory.
 	switch rt := projinfo.Proj.Runtime.Name(); rt {
 	case NodeJSRuntime:
+		if pt.opts.UsePnpm || usePnpmEnv() {
+			return pt.preparePnpmProject(projinfo)
+		}
 		return pt.prepareNodeJSProject(projinfo)
 	case BunRuntime:
 		return pt.prepareBunProject(projinfo)
