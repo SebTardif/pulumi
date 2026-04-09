@@ -73,9 +73,14 @@ func checkNodeJS(t *testing.T, path string, dependencies codegen.StringSet, link
 
 	// Write out package.json
 	pkgs := nodejsPackages(t, dependencies)
+	pulumiDep := "latest"
+	if linkLocal {
+		sdkPath := integration.FindNodeSDKBinPath(t)
+		pulumiDep = "file:" + sdkPath
+	}
 	pkgInfo := npmPackage{
 		Dependencies: map[string]string{
-			"@pulumi/pulumi": "latest",
+			"@pulumi/pulumi": pulumiDep,
 		},
 		DevDependencies: map[string]string{
 			"@types/node": "^17.0.14",
@@ -105,11 +110,10 @@ func typeCheckNodeJS(t *testing.T, path string, _ codegen.StringSet, linkLocal b
 	TypeCheckNodeJSPackage(t, dir, linkLocal)
 }
 
-func TypeCheckNodeJSPackage(t *testing.T, pwd string, linkLocal bool) {
+func TypeCheckNodeJSPackage(t *testing.T, pwd string, _ bool) {
+	// package.json already has file: deps set by checkNodeJS when linkLocal is true,
+	// so pnpm install resolves everything — no separate link step needed.
 	RunCommand(t, "pnpm_install", pwd, "pnpm", "install")
-	if linkLocal {
-		RunCommand(t, "pnpm_link", pwd, "pnpm", "link", "--global", "@pulumi/pulumi")
-	}
 	tscOptions := &integration.ProgramTestOptions{
 		// Avoid Out of Memory error on CI:
 		Env: []string{"NODE_OPTIONS=--max_old_space_size=4096"},

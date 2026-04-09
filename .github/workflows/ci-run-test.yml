@@ -231,11 +231,6 @@ jobs:
           version: 10.33.0
       - name: Configure pnpm
         run: |
-          # pnpm/action-setup sets PNPM_HOME to a path inside node_modules/.bin
-          # which breaks `pnpm link --global` (symlink source == target). Use a
-          # proper directory instead.
-          echo "PNPM_HOME=$HOME/.local/share/pnpm" >> "$GITHUB_ENV"
-          echo "$HOME/.local/share/pnpm" >> "$GITHUB_PATH"
           pnpm config set minimumReleaseAge 4320 --global
       - name: Set up Node ${{ fromJson(inputs.version-set).nodejs }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -371,7 +366,6 @@ jobs:
           make build_package
           cd bin
           bun link
-          pnpm link --global
       - name: Ensure dependencies for the Python SDK
         run: |
           cd sdk/python

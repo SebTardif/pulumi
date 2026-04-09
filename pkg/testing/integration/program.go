@@ -2239,7 +2239,12 @@ func (pt *ProgramTester) copyTestToTemporaryDirectory() (string, string, error) 
 			return "", "", err
 		}
 		if pt.opts.UsePnpm || usePnpmEnv() {
-			if err := pt.runPnpmCommand("pnpm-link", []string{"link", "--global", "@pulumi/pulumi"}, projdir); err != nil {
+			sdkPath, err := findNodeSDKBinPath()
+			if err != nil {
+				return "", "", err
+			}
+			spec := fmt.Sprintf("dependencies.@pulumi/pulumi=file:%s", sdkPath)
+			if err := pt.runPnpmCommand("pnpm-pkg-set", []string{"pkg", "set", spec}, projdir); err != nil {
 				return "", "", err
 			}
 			if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, projdir); err != nil {
@@ -2442,15 +2447,16 @@ func (pt *ProgramTester) preparePnpmProject(projinfo *engine.Projinfo) error {
 		}
 	}
 
-	// Now ensure dependencies are present.
-	if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, cwd); err != nil {
-		return err
-	}
-
+	// Set file: dependencies for local packages before install so pnpm resolves them.
 	if !pt.opts.RunUpdateTest {
 		if err = pt.pnpmLinkPackageDeps(cwd); err != nil {
 			return err
 		}
+	}
+
+	// Now ensure dependencies are present.
+	if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, cwd); err != nil {
+		return err
 	}
 
 	if pt.opts.RunBuild {
@@ -2689,10 +2695,38 @@ func (pt *ProgramTester) bunLinkPackageDeps(cwd string) error {
 	return nil
 }
 
+// FindNodeSDKBinPath walks up from the current working directory looking for
+// sdk/nodejs/bin/package.json and returns the absolute path to that bin/ directory.
+// Returns a test-fatal error wrapper for convenience.
+func FindNodeSDKBinPath(t *testing.T) string {
+	t.Helper()
+	p, err := findNodeSDKBinPath()
+	require.NoError(t, err, "finding Node SDK bin path")
+	return p
+}
+
+// findNodeSDKBinPath returns the absolute path to sdk/nodejs/bin/ in the current repo.
+func findNodeSDKBinPath() (string, error) {
+	stdout, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse --show-toplevel: %w", err)
+	}
+	return filepath.Join(strings.TrimSpace(string(stdout)), "sdk", "nodejs", "bin"), nil
+}
+
 func (pt *ProgramTester) pnpmLinkPackageDeps(cwd string) error {
+	sdkPath, err := findNodeSDKBinPath()
+	if err != nil {
+		return err
+	}
 	for _, dependency := range pt.opts.Dependencies {
-		if err := pt.runPnpmCommand("pnpm-link", []string{"link", "--global", dependency}, cwd); err != nil {
-			return err
+		if dependency == "@pulumi/pulumi" {
+			// Use `pnpm pkg set` with a file: dependency instead of `pnpm link --global`
+			// which is broken in pnpm v10 (https://github.com/pnpm/pnpm/issues/9210).
+			spec := fmt.Sprintf("dependencies.@pulumi/pulumi=file:%s", sdkPath)
+			if err := pt.runPnpmCommand("pnpm-pkg-set", []string{"pkg", "set", spec}, cwd); err != nil {
+				return err
+			}
 		}
 	}
 

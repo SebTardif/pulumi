@@ -25,14 +25,14 @@ describe("Analyzer", function () {
         // We need to link in the pulumi package to the testdata directories so
         // that the analyzer can find it and determine pulumi types like
         // ComponentResource or Output.
+        // Use pnpm pkg set with file: protocol to set a direct dependency on the
+        // locally-built SDK, then pnpm install resolves it.
         const dir = path.join(__dirname, "testdata");
+        // __dirname is sdk/nodejs/bin/tests/provider/experimental (compiled output).
+        // SDK bin/ is at sdk/nodejs/bin/.
+        const sdkBinPath = path.resolve(__dirname, "..", "..", "..");
+        execa.sync("pnpm", ["pkg", "set", `dependencies.@pulumi/pulumi=file:${sdkBinPath}`], { cwd: dir });
         execa.sync("pnpm", ["install"], { cwd: dir });
-        execa.sync("pnpm", ["link", "--global", "@pulumi/pulumi"], { cwd: dir });
-    });
-
-    after(() => {
-        const dir = path.join(__dirname, "testdata");
-        execa.sync("pnpm", ["unlink", "@pulumi/pulumi"], { cwd: dir });
     });
 
     it("infers simple types", async function () {
