@@ -3223,7 +3223,7 @@ func installNodejsProviderDependencies(t *testing.T, dir string) {
 	stderr := &bytes.Buffer{}
 	err = pm.Install(t.Context(), dir, false /* production*/, stdout, stderr)
 	require.NoError(t, err, "stdout: %s, stderr: %s", stdout, stderr)
-	cmd := exec.Command("pnpm", "link", integration.FindNodeSDKBinPath(t))
+	cmd := exec.Command("pnpm", "link", integration.FindNodeSDKBinPath(t)) //nolint:gosec // test code
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "output: %s", out)
