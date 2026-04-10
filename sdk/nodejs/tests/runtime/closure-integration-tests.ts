@@ -81,13 +81,14 @@ async function run(typescriptVersion: string, nodeTypesVersion: string) {
     await writePackageJSON(tmpDir.name, pulumiPackagePath, typescriptVersion, nodeTypesVersion);
     await copyDir(path.join(sdkRoot, "tests", "runtime", "testdata", "closure-tests"), tmpDir.name);
 
-    // Use npm (not pnpm) because the closure serializer's module resolution
-    // does not yet support pnpm's .pnpm/ symlinked node_modules layout.
-    await execa("npm", ["install"], { cwd: tmpDir.name });
+    // Use yarn because the closure serializer's module resolution requires a flat
+    // node_modules layout with copied (not symlinked) file: dependencies. npm symlinks
+    // file: deps and pnpm uses .pnpm/ — both break the exports field handling.
+    await execa("yarn", ["install"], { cwd: tmpDir.name });
 
-    await execa("npx", ["tsc"], { cwd: tmpDir.name });
+    await execa("yarn", ["tsc"], { cwd: tmpDir.name });
 
-    await execa("npx", ["mocha", "--timeout", "30000", "test.js"], {
+    await execa("yarn", ["mocha", "--timeout", "30000", "test.js"], {
         cwd: tmpDir.name,
         stdio: "inherit",
     });
