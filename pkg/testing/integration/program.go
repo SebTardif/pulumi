@@ -2234,16 +2234,19 @@ func (pt *ProgramTester) copyTestToTemporaryDirectory() (string, string, error) 
 			if err != nil {
 				return "", "", err
 			}
-			packageJSON := fmt.Sprintf(`{
+			const packageJSON = `{
 				"name": "test",
 				"dependencies": {
-					"@pulumi/pulumi": "file:%s"
+					"@pulumi/pulumi": "*"
 				}
-			}`, sdkPath)
+			}`
 			if err := os.WriteFile(filepath.Join(projdir, "package.json"), []byte(packageJSON), 0o600); err != nil {
 				return "", "", err
 			}
 			if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, projdir); err != nil {
+				return "", "", err
+			}
+			if err = pt.runPnpmCommand("pnpm-link", []string{"link", sdkPath}, projdir); err != nil {
 				return "", "", err
 			}
 		} else {
@@ -2452,16 +2455,17 @@ func (pt *ProgramTester) preparePnpmProject(projinfo *engine.Projinfo) error {
 		}
 	}
 
-	// Set file: dependencies for local packages before install so pnpm resolves them.
+	// Now ensure dependencies are present.
+	if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, cwd); err != nil {
+		return err
+	}
+
+	// Link local SDK after install. pnpm link <dir> creates a real symlink so that
+	// Node.js module resolution follows it into the SDK's own node_modules.
 	if !pt.opts.RunUpdateTest {
 		if err = pt.pnpmLinkPackageDeps(cwd); err != nil {
 			return err
 		}
-	}
-
-	// Now ensure dependencies are present.
-	if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, cwd); err != nil {
-		return err
 	}
 
 	if pt.opts.RunBuild {
@@ -2726,23 +2730,13 @@ func (pt *ProgramTester) pnpmLinkPackageDeps(cwd string) error {
 	}
 	for _, dependency := range pt.opts.Dependencies {
 		if dependency == "@pulumi/pulumi" {
-			// Set a file: dependency instead of using `pnpm link --global` which is
-			// broken in pnpm v10 (https://github.com/pnpm/pnpm/issues/9210).
-			// Also remove from peerDependencies since pnpm rejects "latest" there.
-			packageJSON, err := readPackageJSON(cwd)
-			if err != nil {
-				return err
-			}
-			deps, _ := packageJSON["dependencies"].(map[string]any)
-			if deps == nil {
-				deps = make(map[string]any)
-			}
-			deps["@pulumi/pulumi"] = "file:" + sdkPath
-			packageJSON["dependencies"] = deps
-			if peerDeps, ok := packageJSON["peerDependencies"].(map[string]any); ok {
-				delete(peerDeps, "@pulumi/pulumi")
-			}
-			if err := writePackageJSON(cwd, packageJSON); err != nil {
+			// Use `pnpm link <dir>` to create a real symlink to the SDK build directory.
+			// This gives the same behavior as `yarn link` — Node.js module resolution
+			// follows the symlink into sdk/nodejs/bin/ and finds the SDK's own transitive
+			// dependencies (TypeScript, ts-node) through normal directory walking.
+			// We avoid `pnpm link --global` which is broken in pnpm v10
+			// (https://github.com/pnpm/pnpm/issues/9210).
+			if err := pt.runPnpmCommand("pnpm-link", []string{"link", sdkPath}, cwd); err != nil {
 				return err
 			}
 		}
