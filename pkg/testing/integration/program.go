@@ -2229,28 +2229,33 @@ func (pt *ProgramTester) copyTestToTemporaryDirectory() (string, string, error) 
 		}
 	}
 	if linkPulumi {
-		const packageJSON = `{
-			"name": "test",
-			"peerDependencies": {
-				"@pulumi/pulumi": "latest"
-			}
-		}`
-		if err := os.WriteFile(filepath.Join(projdir, "package.json"), []byte(packageJSON), 0o600); err != nil {
-			return "", "", err
-		}
 		if pt.opts.UsePnpm || usePnpmEnv() {
 			sdkPath, err := findNodeSDKBinPath()
 			if err != nil {
 				return "", "", err
 			}
-			spec := fmt.Sprintf("dependencies.@pulumi/pulumi=file:%s", sdkPath)
-			if err := pt.runPnpmCommand("pnpm-pkg-set", []string{"pkg", "set", spec}, projdir); err != nil {
+			packageJSON := fmt.Sprintf(`{
+				"name": "test",
+				"dependencies": {
+					"@pulumi/pulumi": "file:%s"
+				}
+			}`, sdkPath)
+			if err := os.WriteFile(filepath.Join(projdir, "package.json"), []byte(packageJSON), 0o600); err != nil {
 				return "", "", err
 			}
 			if err = pt.runPnpmCommand("pnpm-install", []string{"install"}, projdir); err != nil {
 				return "", "", err
 			}
 		} else {
+			const packageJSON = `{
+				"name": "test",
+				"peerDependencies": {
+					"@pulumi/pulumi": "latest"
+				}
+			}`
+			if err := os.WriteFile(filepath.Join(projdir, "package.json"), []byte(packageJSON), 0o600); err != nil {
+				return "", "", err
+			}
 			if err := pt.runYarnCommand("yarn-link", []string{"link", "@pulumi/pulumi"}, projdir); err != nil {
 				return "", "", err
 			}
@@ -2721,10 +2726,23 @@ func (pt *ProgramTester) pnpmLinkPackageDeps(cwd string) error {
 	}
 	for _, dependency := range pt.opts.Dependencies {
 		if dependency == "@pulumi/pulumi" {
-			// Use `pnpm pkg set` with a file: dependency instead of `pnpm link --global`
-			// which is broken in pnpm v10 (https://github.com/pnpm/pnpm/issues/9210).
-			spec := fmt.Sprintf("dependencies.@pulumi/pulumi=file:%s", sdkPath)
-			if err := pt.runPnpmCommand("pnpm-pkg-set", []string{"pkg", "set", spec}, cwd); err != nil {
+			// Set a file: dependency instead of using `pnpm link --global` which is
+			// broken in pnpm v10 (https://github.com/pnpm/pnpm/issues/9210).
+			// Also remove from peerDependencies since pnpm rejects "latest" there.
+			packageJSON, err := readPackageJSON(cwd)
+			if err != nil {
+				return err
+			}
+			deps, _ := packageJSON["dependencies"].(map[string]any)
+			if deps == nil {
+				deps = make(map[string]any)
+			}
+			deps["@pulumi/pulumi"] = "file:" + sdkPath
+			packageJSON["dependencies"] = deps
+			if peerDeps, ok := packageJSON["peerDependencies"].(map[string]any); ok {
+				delete(peerDeps, "@pulumi/pulumi")
+			}
+			if err := writePackageJSON(cwd, packageJSON); err != nil {
 				return err
 			}
 		}
