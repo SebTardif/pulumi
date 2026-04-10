@@ -2395,6 +2395,15 @@ func (pt *ProgramTester) preparePnpmProject(projinfo *engine.Projinfo) error {
 		return err
 	}
 
+	// pnpm requires a package.json to exist. Many test fixtures omit it (yarn silently
+	// does nothing without one). Create a minimal one if missing.
+	pkgJSONPath := filepath.Join(cwd, "package.json")
+	if _, err := os.Stat(pkgJSONPath); os.IsNotExist(err) {
+		if err := os.WriteFile(pkgJSONPath, []byte("{}\n"), 0o600); err != nil {
+			return err
+		}
+	}
+
 	workspaceRoot, err := npm.FindWorkspaceRoot(cwd)
 	if err != nil {
 		if !errors.Is(err, npm.ErrNotInWorkspace) {
