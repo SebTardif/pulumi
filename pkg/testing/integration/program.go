@@ -2395,12 +2395,12 @@ func (pt *ProgramTester) preparePnpmProject(projinfo *engine.Projinfo) error {
 		return err
 	}
 
-	// pnpm requires a package.json to exist. Many test fixtures omit it (yarn silently
-	// does nothing without one). Create a minimal one if missing.
-	pkgJSONPath := filepath.Join(cwd, "package.json")
-	if _, err := os.Stat(pkgJSONPath); os.IsNotExist(err) {
-		if err := os.WriteFile(pkgJSONPath, []byte("{}\n"), 0o600); err != nil {
-			return err
+	// If there's no package.json in cwd, search up to find one (some tests put it in a
+	// parent directory). Unlike yarn, pnpm won't walk up automatically.
+	if _, err := os.Stat(filepath.Join(cwd, "package.json")); os.IsNotExist(err) {
+		if pkgDir, searchErr := fsutil.Searchup(cwd, "package.json"); searchErr == nil {
+			pt.t.Logf("no package.json in %s, using parent %s", cwd, filepath.Dir(pkgDir))
+			cwd = filepath.Dir(pkgDir)
 		}
 	}
 
