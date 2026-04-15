@@ -23,13 +23,10 @@ import (
 	pulumirpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
 )
 
-// PropertyValueMagic is the fixed64 value that identifies a LogPropertyValue.
-// It is the ASCII string "pulumiPv" interpreted as a little-endian uint64.
+// PropertyValueMagic is the fixed64 value that identifies a
+// LogPropertyValue.  See proto/pulumi/log.proto.
 const PropertyValueMagic uint64 = 0x7650696d756c7570 // "pulumiPv" LE
 
-// EncodePropertyValue wraps a google.protobuf.Struct in the LogPropertyValue
-// wire format (see proto/pulumi/log.proto).  The result is suitable for use
-// as a BytesValue attribute in an OTLP log record.
 func EncodePropertyValue(s *structpb.Struct) ([]byte, error) {
 	return proto.Marshal(&pulumirpc.LogPropertyValue{
 		Magic: PropertyValueMagic,
@@ -37,9 +34,6 @@ func EncodePropertyValue(s *structpb.Struct) ([]byte, error) {
 	})
 }
 
-// DecodePropertyValue attempts to decode bytes as a LogPropertyValue.
-// Returns the inner Struct if the magic matches, or an error if the bytes
-// are not a valid LogPropertyValue.
 func DecodePropertyValue(data []byte) (*structpb.Struct, error) {
 	msg := &pulumirpc.LogPropertyValue{}
 	if err := proto.Unmarshal(data, msg); err != nil {

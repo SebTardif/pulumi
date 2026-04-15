@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -115,9 +116,16 @@ func (v VerboseLogger) Infoln(args ...any) {
 }
 
 // Infof is equivalent to the global Infof function, guarded by the value of v.
+// Any PropertyValue args are sent to the export handler as separate
+// attributes. In the exported message they are replaced with
+// [[key]] placeholders.
 func (v VerboseLogger) Infof(format string, args ...any) {
 	if v.Enabled() {
-		slogHandler.Log(context.TODO(), v.slogLevel(), fmt.Sprintf(format, args...), "v", int(v))
+		msg := fmt.Sprintf(format, args...)
+		level := v.slogLevel()
+		slogHandler.Log(context.TODO(), level, msg, "v", int(v))
+		exportMsg, pvAttrs := replacePropertyValues(format, args)
+		logToExporter(context.TODO(), level, exportMsg, append(pvAttrs, slog.Int("v", int(v)))...)
 	}
 }
 
@@ -126,15 +134,21 @@ func V(level int32) VerboseLogger {
 }
 
 func Errorf(format string, args ...any) {
-	slogHandler.Error(fmt.Sprintf(format, args...))
+	msg := fmt.Sprintf(format, args...)
+	slogHandler.Error(msg)
+	logToExporter(context.TODO(), slog.LevelError, msg)
 }
 
 func Infof(format string, args ...any) {
-	slogHandler.Info(fmt.Sprintf(format, args...))
+	msg := fmt.Sprintf(format, args...)
+	slogHandler.Info(msg)
+	logToExporter(context.TODO(), slog.LevelInfo, msg)
 }
 
 func Warningf(format string, args ...any) {
-	slogHandler.Warn(fmt.Sprintf(format, args...))
+	msg := fmt.Sprintf(format, args...)
+	slogHandler.Warn(msg)
+	logToExporter(context.TODO(), slog.LevelWarn, msg)
 }
 
 func InitLogging(logToStderr bool, verbose int, logFlow bool) {
@@ -174,10 +188,13 @@ func InitLogging(logToStderr bool, verbose int, logFlow bool) {
 			})})
 		}
 	}
+
+	initExportHandler(filepath.Base(os.Args[0]))
 }
 
-// Flush flushes any pending log I/O.
+// Flush flushes any pending log I/O and shuts down the export handler.
 func Flush() {
+	shutdownExportHandler()
 	if logFile != nil {
 		logFile.Sync() //nolint:errcheck
 	}
