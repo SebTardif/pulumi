@@ -20,8 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
-	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/plugin"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/common/util/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -99,14 +100,13 @@ func TestExportForwardsToExporter(t *testing.T) {
 func TestExportDecodesPropertyValues(t *testing.T) {
 	t.Parallel()
 
-	pv := resource.NewProperty(resource.PropertyMap{
-		"name": resource.NewProperty("my-bucket"),
-		"password": resource.NewProperty(&resource.Secret{
-			Element: resource.NewProperty("hunter2"),
-		}),
+	sv, err := structpb.NewValue(map[string]any{
+		"name":     "my-bucket",
+		"password": "hunter2",
 	})
+	require.NoError(t, err)
 
-	encoded, err := plugin.EncodePropertyValueForLog(pv)
+	encoded, err := logging.EncodeStructValueForLog(sv)
 	require.NoError(t, err)
 
 	exporter := &mockLogExporter{}
