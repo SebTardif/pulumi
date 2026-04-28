@@ -20,16 +20,16 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/protobuf/types/known/structpb"
-
-	"github.com/pulumi/pulumi/sdk/v3/go/common/util/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 )
 
 type mockLogExporter struct {
@@ -100,14 +100,11 @@ func TestExportForwardsToExporter(t *testing.T) {
 func TestExportDecodesPropertyValues(t *testing.T) {
 	t.Parallel()
 
-	sv, err := structpb.NewValue(map[string]any{
-		"name":     "my-bucket",
-		"password": "hunter2",
-	})
-	require.NoError(t, err)
-
-	encoded, err := logging.EncodeStructValueForLog(sv)
-	require.NoError(t, err)
+	inputs := resource.PropertyMap{
+		"name":     resource.NewProperty("my-bucket"),
+		"password": resource.NewProperty("hunter2"),
+	}
+	encoded := inputs.LogValue().Any().([]byte)
 
 	exporter := &mockLogExporter{}
 	svc := &service{exporter: exporter}
@@ -138,11 +135,15 @@ func TestExportDecodesPropertyValues(t *testing.T) {
 	lr := exporter.firstRecord()
 	v, ok := lr.Attributes().Get("inputs")
 	require.True(t, ok)
-	// Property value bytes are decoded to a JSON string of the
-	// resource.PropertyValue's Mappable() representation.
-	jsonStr := v.Str()
-	assert.Contains(t, jsonStr, "my-bucket")
-	assert.Contains(t, jsonStr, "hunter2")
+	// Property value bytes are decoded to a structured pcommon map.
+	require.Equal(t, pcommon.ValueTypeMap, v.Type())
+	m := v.Map()
+	nameVal, ok := m.Get("name")
+	require.True(t, ok)
+	assert.Equal(t, "my-bucket", nameVal.Str())
+	pwVal, ok := m.Get("password")
+	require.True(t, ok)
+	assert.Equal(t, "hunter2", pwVal.Str())
 }
 
 func TestExportNilExporterDoesNotPanic(t *testing.T) {

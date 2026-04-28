@@ -18,7 +18,8 @@ package logging
 
 import (
 	"context"
-	"encoding/json"
+
+	"google.golang.org/protobuf/types/known/structpb"
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	"google.golang.org/grpc"
@@ -28,24 +29,19 @@ import (
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
-
-	"github.com/pulumi/pulumi/sdk/v3/go/common/util/logging"
 )
 
 // LogExporter receives decoded OTLP log records. Property value
-// attributes have already been converted from binary to JSON strings.
+// attributes have already been converted from binary to structured values.
 type LogExporter interface {
 	ExportLogs(ctx context.Context, logs plog.Logs) error
 	Shutdown(ctx context.Context) error
 }
 
-// NewRegistrar returns a ServiceRegistrar that registers the OTLP
-// LogsService on a gRPC server, forwarding decoded log records to
-// the given exporter.
-func NewRegistrar(exporter LogExporter) func(*grpc.Server) {
-	return func(s *grpc.Server) {
-		collogspb.RegisterLogsServiceServer(s, &service{exporter: exporter})
-	}
+// Register registers the OTLP LogsService on a gRPC server,
+// forwarding decoded log records to the given exporter.
+func Register(s *grpc.Server, exporter LogExporter) {
+	collogspb.RegisterLogsServiceServer(s, &service{exporter: exporter})
 }
 
 type service struct {
@@ -85,8 +81,7 @@ func (s *service) Export(
 
 // decodePropertyValues walks all log record attributes and replaces
 // any BytesValue that decodes as a property value (via the magic
-// prefix in logging.DecodeStructValueFromLog) with its JSON string
-// representation.
+// prefix) with structured pcommon values.
 func decodePropertyValues(logs plog.Logs) {
 	for i := range logs.ResourceLogs().Len() {
 		rl := logs.ResourceLogs().At(i)
@@ -103,14 +98,39 @@ func decodeRecordAttrs(lr plog.LogRecord) {
 	lr.Attributes().Range(func(key string, val pcommon.Value) bool {
 		if val.Type() == pcommon.ValueTypeBytes {
 			raw := val.Bytes().AsRaw()
-			sv, err := logging.DecodeStructValueFromLog(raw)
+			sv, err := decodeStructValueFromLog(raw)
 			if err == nil {
-				b, err := json.Marshal(sv.AsInterface())
-				if err == nil {
-					val.SetStr(string(b))
-				}
+				structValueToPcommon(sv, val)
 			}
 		}
 		return true
 	})
+}
+
+// structValueToPcommon converts a protobuf structpb.Value into the
+// equivalent pcommon.Value, preserving maps, lists, and scalar types.
+func structValueToPcommon(sv *structpb.Value, dest pcommon.Value) {
+	switch v := sv.GetKind().(type) {
+	case *structpb.Value_NullValue:
+		// pcommon has no explicit null; use an empty value.
+		dest.SetStr("")
+	case *structpb.Value_NumberValue:
+		dest.SetDouble(v.NumberValue)
+	case *structpb.Value_StringValue:
+		dest.SetStr(v.StringValue)
+	case *structpb.Value_BoolValue:
+		dest.SetBool(v.BoolValue)
+	case *structpb.Value_StructValue:
+		m := dest.SetEmptyMap()
+		for k, field := range v.StructValue.GetFields() {
+			child := m.PutEmpty(k)
+			structValueToPcommon(field, child)
+		}
+	case *structpb.Value_ListValue:
+		sl := dest.SetEmptySlice()
+		for _, item := range v.ListValue.GetValues() {
+			child := sl.AppendEmpty()
+			structValueToPcommon(item, child)
+		}
+	}
 }

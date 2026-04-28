@@ -22,34 +22,21 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// PropertyValueLogMagic is the magic prefix written before the
-// serialized property value in the encoder functions below.  It is
-// the ASCII string "pulumiPv" interpreted as a little-endian uint64.
-const PropertyValueLogMagic uint64 = 0x7650696d756c7570
+// propertyValueLogMagic is the magic prefix written before the
+// serialized property value by SDK OTLP log emitters (Python, Node).
+// It is the ASCII string "pulumiPv" interpreted as a little-endian
+// uint64.
+const propertyValueLogMagic uint64 = 0x7650696d756c7570
 
 const propertyValueLogMagicSize = 8
 
-// EncodeStructValueForLog prepends the magic prefix to the
-// protobuf-encoded structpb.Value.  Callers in the plugin package
-// wrap this to accept resource.PropertyValue and property.Value.
-func EncodeStructValueForLog(val *structpb.Value) ([]byte, error) {
-	valBytes, err := proto.Marshal(val)
-	if err != nil {
-		return nil, err
-	}
-	buf := make([]byte, propertyValueLogMagicSize+len(valBytes))
-	binary.LittleEndian.PutUint64(buf[:propertyValueLogMagicSize], PropertyValueLogMagic)
-	copy(buf[propertyValueLogMagicSize:], valBytes)
-	return buf, nil
-}
-
-// DecodeStructValueFromLog verifies the magic prefix and returns the
+// decodeStructValueFromLog verifies the magic prefix and returns the
 // inner protobuf-encoded structpb.Value.
-func DecodeStructValueFromLog(data []byte) (*structpb.Value, error) {
+func decodeStructValueFromLog(data []byte) (*structpb.Value, error) {
 	if len(data) < propertyValueLogMagicSize {
 		return nil, errors.New("not a property value log: too short")
 	}
-	if binary.LittleEndian.Uint64(data[:propertyValueLogMagicSize]) != PropertyValueLogMagic {
+	if binary.LittleEndian.Uint64(data[:propertyValueLogMagicSize]) != propertyValueLogMagic {
 		return nil, errors.New("not a property value log: magic mismatch")
 	}
 	val := &structpb.Value{}
