@@ -73,6 +73,20 @@ const (
 	UnknownObjectValue = "dd056dcd-154b-4c76-9bd3-c8f88648b5ff"
 )
 
+func init() {
+	opts := MarshalOptions{
+		KeepSecrets:      true,
+		KeepUnknowns:     true,
+		KeepOutputValues: true,
+	}
+	resource.MarshalPropertyMapForLog = func(m resource.PropertyMap) (*structpb.Struct, error) {
+		return MarshalProperties(m, opts)
+	}
+	resource.MarshalPropertyValueForLog = func(k resource.PropertyKey, v resource.PropertyValue) (*structpb.Value, error) {
+		return MarshalPropertyValue(k, v, opts)
+	}
+}
+
 // MarshalProperties marshals a resource's property map as a "JSON-like" protobuf structure.
 func MarshalProperties(props resource.PropertyMap, opts MarshalOptions) (*structpb.Struct, error) {
 	if props == nil && opts.PropagateNil {

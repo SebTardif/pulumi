@@ -27,30 +27,37 @@ import (
 // This must match the constant used by the Python and Node SDKs.
 const propertyValueLogMagic uint64 = 0x7650696d756c7570
 
+// logMarshalOpts are the MarshalOptions used when encoding property
+// values for structured logging.
+var logMarshalOpts = MarshalOptions{
+	KeepSecrets:      true,
+	KeepUnknowns:     true,
+	KeepOutputValues: true,
+}
+
 // LogValue implements slog.LogValuer.  It encodes the property map
-// as [8-byte magic][protobuf structpb.Value] bytes, the same wire
-// format used by the Python and Node SDK OTLP log emitters.  The
-// CLI's OTLP log receiver decodes these bytes back into structured
-// values.
+// as [8-byte magic][protobuf structpb.Value] bytes, matching the
+// wire format used by the Python and Node SDK OTLP log emitters.
 func (m PropertyMap) LogValue() slog.Value {
-	sv, err := structpb.NewValue(m.Mappable())
+	s, err := MarshalProperties(m, logMarshalOpts)
 	if err != nil {
 		return slog.Value{}
 	}
-	return encodePropertyLogValue(sv)
+	sv := &structpb.Value{Kind: &structpb.Value_StructValue{StructValue: s}}
+	return encodeLogValue(sv)
 }
 
 // LogValue implements slog.LogValuer.  See PropertyMap.LogValue for
 // the wire format description.
 func (v PropertyValue) LogValue() slog.Value {
-	sv, err := structpb.NewValue(v.Mappable())
+	sv, err := MarshalPropertyValue("", v, logMarshalOpts)
 	if err != nil {
 		return slog.Value{}
 	}
-	return encodePropertyLogValue(sv)
+	return encodeLogValue(sv)
 }
 
-func encodePropertyLogValue(sv *structpb.Value) slog.Value {
+func encodeLogValue(sv *structpb.Value) slog.Value {
 	valBytes, err := proto.Marshal(sv)
 	if err != nil {
 		return slog.Value{}
