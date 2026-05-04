@@ -149,7 +149,9 @@ func run() int {
 		}
 	}
 
-	// api.go is a verbatim copy of the chosen boilerplate.
+	// api.go is a verbatim copy of the chosen boilerplate, modulo a
+	// best-effort rewrite that points the boilerplate's own opt-package
+	// imports (none today, but possible in the future) at apiImportBase.
 	apiSource, err := readBoilerplateFile(boilerplateDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read boilerplate: %v\n", err)
@@ -342,9 +344,13 @@ func buildOptionsImports() *ast.GenDecl {
 }
 
 // basePackageImportPath is the canonical location of the `base` package
-// that generated code consumes. The integration PR (#4) is where this flips
-// over to the real sdk/go/auto address.
-const basePackageImportPath = "github.com/pulumi/pulumi/sdk/v3/go/tools/automation/boilerplate/base"
+// that generated code consumes.
+const basePackageImportPath = "github.com/pulumi/pulumi/sdk/v3/go/auto/automation/base"
+
+// defaultAPIImportBase is the Go import path of the default outputDir.
+// It anchors the per-command opt-package imports emitted by commands.go
+// (each becomes `<defaultAPIImportBase>/optfoo`).
+const defaultAPIImportBase = "github.com/pulumi/pulumi/sdk/v3/go/tools/automation/output/automation"
 
 // defaultAPIImportBase is the Go import path of the default outputDir.
 // It anchors the per-command opt-package imports emitted by commands.go
@@ -700,13 +706,16 @@ func readBoilerplateFile(dir string) ([]byte, error) {
 
 // commandMethod is the template payload for one generated method.
 type commandMethod struct {
-	Name         string
-	OptPkg       string
-	Breadcrumbs  []string
-	DocComment   string
-	RequiredArgs []methodArg
-	OptionalArgs []methodArg
-	VariadicArg  *methodArg
+	Name        string
+	OptPkg      string
+	Breadcrumbs []string
+	// DocCommentLines is the description from the spec split into one
+	// trimmed line per slice entry. The template emits each as its own
+	// `// `-prefixed comment.
+	DocCommentLines []string
+	RequiredArgs    []methodArg
+	OptionalArgs    []methodArg
+	VariadicArg     *methodArg
 	// Presets are pre-rendered Go statements appending preset flag values.
 	Presets []string
 	// Flags are pre-rendered Go statements appending user-supplied flag values.
@@ -820,10 +829,10 @@ func walkCommands(
 // node: method name, positional arguments, pre-rendered preset/flag bodies.
 func buildCommandMethod(node Structure, breadcrumbs []string, flags map[string]Flag) (commandMethod, error) {
 	m := commandMethod{
-		Name:        methodNameFor(breadcrumbs),
-		OptPkg:      packageNameFor(breadcrumbs),
-		Breadcrumbs: append([]string(nil), breadcrumbs...),
-		DocComment:  strings.TrimSpace(node.Description),
+		Name:            methodNameFor(breadcrumbs),
+		OptPkg:          packageNameFor(breadcrumbs),
+		Breadcrumbs:     append([]string(nil), breadcrumbs...),
+		DocCommentLines: splitDocComment(node.Description),
 	}
 
 	// Positional arguments. When `requiredArguments` is absent from the spec
@@ -908,6 +917,24 @@ func buildCommandMethod(node Structure, breadcrumbs []string, flags map[string]F
 	}
 
 	return m, nil
+}
+
+// splitDocComment trims the leading/trailing whitespace from a CLI
+// description and returns one entry per line. The result drives the
+// per-line comment emission in commands.go's template; embedding the raw
+// description with newlines would otherwise drop subsequent lines outside
+// the comment block.
+func splitDocComment(desc string) []string {
+	desc = strings.TrimSpace(desc)
+	if desc == "" {
+		return nil
+	}
+	raw := strings.Split(desc, "\n")
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		out = append(out, strings.TrimRight(line, " \t"))
+	}
+	return out
 }
 
 // methodNameFor converts CLI breadcrumbs to a Go method name. For example:
@@ -1059,11 +1086,10 @@ var _ = fmt.Sprint
 var _ = context.Background
 
 {{range .Methods}}
-{{if .DocComment}}// {{.Name}} corresponds to ` + "`pulumi {{range $i, $c := .Breadcrumbs}}{{if $i}} {{end}}{{$c}}{{end}}`" + `.
-//
-// {{.DocComment}}
-{{else}}// {{.Name}} corresponds to ` + "`pulumi {{range $i, $c := .Breadcrumbs}}{{if $i}} {{end}}{{$c}}{{end}}`" + `.
-{{end -}}
+// {{.Name}} corresponds to ` + "`pulumi {{range $i, $c := .Breadcrumbs}}{{if $i}} {{end}}{{$c}}{{end}}`" + `.
+{{if .DocCommentLines}}//
+{{range .DocCommentLines}}{{if .}}// {{.}}{{else}}//{{end}}
+{{end}}{{end -}}
 func (a *API) {{.Name}}(
 	ctx context.Context,
 {{- range .RequiredArgs}}
