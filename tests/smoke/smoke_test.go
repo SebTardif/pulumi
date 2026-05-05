@@ -1208,3 +1208,15 @@ func TestTerraformUp(t *testing.T) {
 		"please see the documentation at "+
 		"https://www.pulumi.com/docs/iac/guides/migration/migrating-to-pulumi/from-terraform/")
 }
+
+// Sanity test that we can `init` and then do some basic operations like stack selection and config.
+func TestInitOperations(t *testing.T) {
+	t.Parallel()
+
+	e := ptesting.NewEnvironment(t)
+	defer e.DeleteIfNotFailed()
+
+	e.RunCommand("pulumi", "init")
+	e.RunCommand("pulumi", "stack", "init", "testing")
+	e.RunCommand("pulumi", "config", "set", "key", "value")
+}
