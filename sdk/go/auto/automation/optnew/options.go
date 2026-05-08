@@ -16,12 +16,20 @@
 
 package optnew
 
-import "github.com/pulumi/pulumi/sdk/v3/go/auto/automation/base"
+import "io"
 
 // Options are options for the `pulumi new` command.
 type Options struct {
-	base.BaseOptions
-
+	// Cwd is the working directory in which to run the pulumi CLI. When empty the caller's process-level cwd is used.
+	Cwd string
+	// AdditionalEnv is merged over the process environment before running the command.
+	AdditionalEnv map[string]string
+	// Stdout, when non-nil, receives a copy of the child process' stdout in real time.
+	Stdout io.Writer
+	// Stderr, when non-nil, receives a copy of the child process' stderr in real time.
+	Stderr io.Writer
+	// Stdin, when non-nil, is connected to the child process' stdin.
+	Stdin io.Reader
 	// Prompt to use for Pulumi AI
 	Ai string
 	// Colorize output. Choices are: always, never, raw, auto
@@ -88,6 +96,13 @@ func Ai(v string) Option {
 	}
 }
 
+// AdditionalEnv returns an Option that sets AdditionalEnv.
+func AdditionalEnv(v map[string]string) Option {
+	return func(o *Options) {
+		o.AdditionalEnv = v
+	}
+}
+
 // Color returns an Option that sets Color.
 func Color(v string) Option {
 	return func(o *Options) {
@@ -106,6 +121,13 @@ func Config(v []string) Option {
 func ConfigPath(v bool) Option {
 	return func(o *Options) {
 		o.ConfigPath = v
+	}
+}
+
+// Cwd returns an Option that sets Cwd.
+func Cwd(v string) Option {
+	return func(o *Options) {
+		o.Cwd = v
 	}
 }
 
@@ -239,6 +261,27 @@ func SecretsProvider(v string) Option {
 func Stack(v string) Option {
 	return func(o *Options) {
 		o.Stack = v
+	}
+}
+
+// Stderr returns an Option that sets Stderr.
+func Stderr(v io.Writer) Option {
+	return func(o *Options) {
+		o.Stderr = v
+	}
+}
+
+// Stdin returns an Option that sets Stdin.
+func Stdin(v io.Reader) Option {
+	return func(o *Options) {
+		o.Stdin = v
+	}
+}
+
+// Stdout returns an Option that sets Stdout.
+func Stdout(v io.Writer) Option {
+	return func(o *Options) {
+		o.Stdout = v
 	}
 }
 

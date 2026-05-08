@@ -115,7 +115,13 @@ func (a *API) Cancel(
 		final = append(final, args...)
 	}
 
-	return a.run(ctx, o.BaseOptions, final)
+	return a.run(ctx, base.BaseOptions{
+		Cwd:           o.Cwd,
+		AdditionalEnv: o.AdditionalEnv,
+		Stdout:        o.Stdout,
+		Stderr:        o.Stderr,
+		Stdin:         o.Stdin,
+	}, final)
 }
 
 // New corresponds to `pulumi new`.
@@ -298,7 +304,13 @@ func (a *API) New(
 		final = append(final, args...)
 	}
 
-	return a.run(ctx, o.BaseOptions, final)
+	return a.run(ctx, base.BaseOptions{
+		Cwd:           o.Cwd,
+		AdditionalEnv: o.AdditionalEnv,
+		Stdout:        o.Stdout,
+		Stderr:        o.Stderr,
+		Stdin:         o.Stdin,
+	}, final)
 }
 
 // Org corresponds to `pulumi org`.
@@ -357,7 +369,13 @@ func (a *API) Org(
 		final = append(final, "--verbose", fmt.Sprint(o.Verbose))
 	}
 
-	return a.run(ctx, o.BaseOptions, final)
+	return a.run(ctx, base.BaseOptions{
+		Cwd:           o.Cwd,
+		AdditionalEnv: o.AdditionalEnv,
+		Stdout:        o.Stdout,
+		Stderr:        o.Stderr,
+		Stdin:         o.Stdin,
+	}, final)
 }
 
 // OrgGetDefault corresponds to `pulumi org get-default`.
@@ -422,7 +440,13 @@ func (a *API) OrgGetDefault(
 		final = append(final, "--verbose", fmt.Sprint(o.Verbose))
 	}
 
-	return a.run(ctx, o.BaseOptions, final)
+	return a.run(ctx, base.BaseOptions{
+		Cwd:           o.Cwd,
+		AdditionalEnv: o.AdditionalEnv,
+		Stdout:        o.Stdout,
+		Stderr:        o.Stderr,
+		Stdin:         o.Stdin,
+	}, final)
 }
 
 // OrgSearch corresponds to `pulumi org search`.
@@ -501,7 +525,13 @@ func (a *API) OrgSearch(
 		final = append(final, "--web")
 	}
 
-	return a.run(ctx, o.BaseOptions, final)
+	return a.run(ctx, base.BaseOptions{
+		Cwd:           o.Cwd,
+		AdditionalEnv: o.AdditionalEnv,
+		Stdout:        o.Stdout,
+		Stderr:        o.Stderr,
+		Stdin:         o.Stdin,
+	}, final)
 }
 
 // OrgSearchAi corresponds to `pulumi org search ai`.
@@ -582,7 +612,13 @@ func (a *API) OrgSearchAi(
 		final = append(final, "--web")
 	}
 
-	return a.run(ctx, o.BaseOptions, final)
+	return a.run(ctx, base.BaseOptions{
+		Cwd:           o.Cwd,
+		AdditionalEnv: o.AdditionalEnv,
+		Stdout:        o.Stdout,
+		Stderr:        o.Stderr,
+		Stdin:         o.Stdin,
+	}, final)
 }
 
 // OrgSetDefault corresponds to `pulumi org set-default`.
@@ -657,5 +693,11 @@ func (a *API) OrgSetDefault(
 		final = append(final, args...)
 	}
 
-	return a.run(ctx, o.BaseOptions, final)
+	return a.run(ctx, base.BaseOptions{
+		Cwd:           o.Cwd,
+		AdditionalEnv: o.AdditionalEnv,
+		Stdout:        o.Stdout,
+		Stderr:        o.Stderr,
+		Stdin:         o.Stdin,
+	}, final)
 }
