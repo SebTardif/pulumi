@@ -158,6 +158,12 @@
             "flags": {}
         },
         {
+            "path": ["cloud"],
+            "propagate": true,
+            "exclude": true,
+            "flags": {}
+        },
+        {
             "path": ["console"],
             "propagate": true,
             "exclude": true,
@@ -177,6 +183,12 @@
         },
         {
             "path": ["deployment"],
+            "propagate": true,
+            "exclude": true,
+            "flags": {}
+        },
+        {
+            "path": ["events"],
             "propagate": true,
             "exclude": true,
             "flags": {}
