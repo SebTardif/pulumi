@@ -1379,6 +1379,40 @@ func TestPackageAddGoParameterized(t *testing.T) {
 		fmt.Sprintf("expected go.mod to contain a replace for the package.  Contains: %v", containedRenames))
 }
 
+// Regression test for https://github.com/pulumi/pulumi/issues/21950: when an inline program runs more than once in the
+// same Go process, each run must register the parameterized package against its own engine.
+//
+//nolint:paralleltest // mutates environment
+func TestStaleParameterizedPackageRefGo(t *testing.T) {
+	e := ptesting.NewEnvironment(t)
+	defer e.DeleteIfNotFailed()
+	e.ImportDirectory(filepath.Join("go", "stale-parameterized-packageref"))
+
+	pulumiHome := filepath.Join(e.RootPath, ".pulumi-home")
+	require.NoError(t, os.MkdirAll(pulumiHome, 0o700))
+	localBin, err := filepath.Abs(filepath.Join("..", "..", "bin"))
+	require.NoError(t, err)
+	e.Env = append(e.Env,
+		"PATH="+localBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PULUMI_HOME="+pulumiHome,
+		"PULUMI_BACKEND_URL=file://"+e.RootPath,
+		"PULUMI_CONFIG_PASSPHRASE=test",
+	)
+
+	pulumiBin := filepath.Join(localBin, "pulumi")
+	e.RunCommand(pulumiBin, "plugin", "install", "resource", "terraform-provider", "1.1.1")
+	e.RunCommand(pulumiBin, "package", "add", "terraform-provider", "hashicorp/random", "3.8.1")
+
+	localSDK, err := filepath.Abs(filepath.Join("..", "..", "sdk"))
+	require.NoError(t, err)
+	e.RunCommand("go", "mod", "edit", "-replace", "github.com/pulumi/pulumi/sdk/v3="+localSDK)
+	e.RunCommand("go", "mod", "tidy")
+
+	stdout, _ := e.RunCommand("go", "run", ".")
+	assert.Contains(t, stdout, "First preview succeeded")
+	assert.Contains(t, stdout, "Second preview succeeded")
+}
+
 //nolint:paralleltest // mutates environment
 func TestConvertTerraformProviderGo(t *testing.T) {
 	e := ptesting.NewEnvironment(t)
