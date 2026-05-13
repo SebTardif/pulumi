@@ -781,6 +781,18 @@ func (pc *Client) DeleteStackWebhook(
 	return pc.restCall(ctx, "DELETE", getStackPath(stackID, "hooks", webhookName), nil, nil, nil)
 }
 
+// ListStackWebhookDeliveries returns recent deliveries for the given webhook.
+func (pc *Client) ListStackWebhookDeliveries(
+	ctx context.Context, stackID StackIdentifier, webhookName string,
+) ([]apitype.WebhookDelivery, error) {
+	var resp []apitype.WebhookDelivery
+	path := getStackPath(stackID, "hooks", webhookName, "deliveries")
+	if err := pc.restCall(ctx, "GET", path, nil, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 // CreateStackDetails holds additional information returned by the Pulumi Service when a stack is
 // created, beyond the stack itself.
 type CreateStackDetails struct {
