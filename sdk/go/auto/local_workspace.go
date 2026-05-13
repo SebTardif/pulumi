@@ -939,7 +939,7 @@ func (l *LocalWorkspace) New(ctx context.Context, opts *NewOptions) (NewResult, 
 		if opts.Stderr != nil {
 			o.Stderr = opts.Stderr
 		}
-		o.Ai = opts.AI
+		o.AI = opts.AI
 		o.Config = opts.Config
 		o.ConfigPath = opts.ConfigPath
 		o.Description = opts.Description

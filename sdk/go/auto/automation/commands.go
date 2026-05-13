@@ -187,8 +187,8 @@ func (a *API) New(
 
 	final = append(final, "--yes")
 
-	if o.Ai != "" {
-		final = append(final, "--ai", fmt.Sprint(o.Ai))
+	if o.AI != "" {
+		final = append(final, "--ai", fmt.Sprint(o.AI))
 	}
 
 	if o.Color != "" {
@@ -534,10 +534,10 @@ func (a *API) OrgSearch(
 	}, final)
 }
 
-// OrgSearchAi corresponds to `pulumi org search ai`.
+// OrgSearchAI corresponds to `pulumi org search ai`.
 //
 // Search for resources in Pulumi Cloud using Pulumi AI
-func (a *API) OrgSearchAi(
+func (a *API) OrgSearchAI(
 	ctx context.Context,
 	opts ...optorgsearchai.Option,
 ) (base.CommandResult, error) {

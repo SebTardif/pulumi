@@ -158,6 +158,12 @@
             "flags": {}
         },
         {
+            "path": ["api"],
+            "propagate": true,
+            "exclude": true,
+            "flags": {}
+        },
+        {
             "path": ["cloud"],
             "propagate": true,
             "exclude": true,
@@ -218,6 +224,12 @@
             "flags": {}
         },
         {
+            "path": ["insights"],
+            "propagate": true,
+            "exclude": true,
+            "flags": {}
+        },
+        {
             "path": ["install"],
             "propagate": true,
             "exclude": true,
@@ -249,6 +261,36 @@
         {
             "path": ["org"],
             "propagate": true,
+            "flags": {}
+        },
+        {
+            "path": ["org", "audit-log"],
+            "propagate": true,
+            "exclude": true,
+            "flags": {}
+        },
+        {
+            "path": ["org", "member"],
+            "propagate": true,
+            "exclude": true,
+            "flags": {}
+        },
+        {
+            "path": ["org", "role"],
+            "propagate": true,
+            "exclude": true,
+            "flags": {}
+        },
+        {
+            "path": ["org", "usage"],
+            "propagate": true,
+            "exclude": true,
+            "flags": {}
+        },
+        {
+            "path": ["org", "webhook"],
+            "propagate": true,
+            "exclude": true,
             "flags": {}
         },
         {

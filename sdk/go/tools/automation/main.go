@@ -361,11 +361,6 @@ const basePackageImportPath = "github.com/pulumi/pulumi/sdk/v3/go/auto/automatio
 // (each becomes `<defaultAPIImportBase>/optfoo`).
 const defaultAPIImportBase = "github.com/pulumi/pulumi/sdk/v3/go/tools/automation/output/automation"
 
-// defaultAPIImportBase is the Go import path of the default outputDir.
-// It anchors the per-command opt-package imports emitted by commands.go
-// (each becomes `<defaultAPIImportBase>/optfoo`).
-const defaultAPIImportBase = "github.com/pulumi/pulumi/sdk/v3/go/tools/automation/output/automation"
-
 // acronyms lists the words that `toGoCamel` uppercases wholesale to match
 // the Go convention golint enforces (and the broader stdlib style).
 // `strcase.ToCamel` only knows one-word-at-a-time PascalCase, so without

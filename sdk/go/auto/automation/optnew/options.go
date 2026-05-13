@@ -31,7 +31,7 @@ type Options struct {
 	// Stdin, when non-nil, is connected to the child process' stdin.
 	Stdin io.Reader
 	// Prompt to use for Pulumi AI
-	Ai string
+	AI string
 	// Colorize output. Choices are: always, never, raw, auto
 	Color string
 	// Config to save
@@ -89,10 +89,10 @@ type Options struct {
 // Option configures pulumi new when building CLI commands.
 type Option func(*Options)
 
-// Ai returns an Option that sets Ai.
-func Ai(v string) Option {
+// AI returns an Option that sets AI.
+func AI(v string) Option {
 	return func(o *Options) {
-		o.Ai = v
+		o.AI = v
 	}
 }
 
