@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -31,6 +30,7 @@ import (
 	cmdBackend "github.com/pulumi/pulumi/pkg/v3/cmd/pulumi/backend"
 	cmdCmd "github.com/pulumi/pulumi/pkg/v3/cmd/pulumi/cmd"
 	"github.com/pulumi/pulumi/pkg/v3/cmd/pulumi/constrictor"
+	cmdConvert "github.com/pulumi/pulumi/pkg/v3/cmd/pulumi/convert"
 	"github.com/pulumi/pulumi/pkg/v3/cmd/pulumi/packages"
 	"github.com/pulumi/pulumi/pkg/v3/codegen/pcl"
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
@@ -46,23 +46,37 @@ import (
 
 func NewDoCmd(
 	lm cmdBackend.LoginManager, ws pkgWorkspace.Context,
-	pluginFromSource func(context.Context, diag.Sink, string, string) (io.Closer, plugin.Provider, error),
+	pluginFromSource func(context.Context, *plugin.Context, string, string) (plugin.Provider, error),
+	newHost func() (plugin.Host, error),
+) *cobra.Command {
+	return newDoCmd(lm, ws, pluginFromSource, newHost, nil)
+}
+
+func newDoCmd(
+	lm cmdBackend.LoginManager, ws pkgWorkspace.Context,
+	pluginFromSource func(context.Context, *plugin.Context, string, string) (plugin.Provider, error),
+	newHost func() (plugin.Host, error),
+	loadConverterPlugin func(
+		*plugin.Context, string, func(sev diag.Severity, msg string),
+	) (plugin.Converter, error),
 ) *cobra.Command {
 	if pluginFromSource == nil {
 		pluginFromSource = func(
-			ctx context.Context, sink diag.Sink, wd, source string,
-		) (io.Closer, plugin.Provider, error) {
-			pctx, err := plugin.NewContext(
-				ctx, sink, sink, nil, nil, wd, nil, false,
-				nil, schema.NewLoaderServerFromHost)
-			if err != nil {
-				return nil, nil, fmt.Errorf("create plugin context: %w", err)
-			}
-
-			registry := cmdCmd.NewDefaultRegistry(ctx, lm, ws, nil, sink, env.Global())
+			ctx context.Context,
+			pctx *plugin.Context, wd, source string,
+		) (plugin.Provider, error) {
+			registry := cmdCmd.NewDefaultRegistry(ctx, lm, ws, nil, pctx.Diag, env.Global())
 			p, _, err := packages.ProviderFromSource(ws, pctx, source, registry, env.Global(), 0 /* unbounded concurrency */)
-			return pctx, p, err
+			return p, err
 		}
+	}
+	if newHost == nil {
+		newHost = func() (plugin.Host, error) {
+			return nil, nil
+		}
+	}
+	if loadConverterPlugin == nil {
+		loadConverterPlugin = cmdConvert.LoadConverterPlugin
 	}
 
 	var dryrun bool
@@ -125,7 +139,28 @@ func NewDoCmd(
 		}
 
 		ctx := cmd.Context()
-		pctx, p, err := pluginFromSource(ctx, sink, wd, pkgargs[0])
+
+		host, err := newHost()
+		if err != nil {
+			return nil, nil, fmt.Errorf("create plugin host: %w", err)
+		}
+
+		pctx, err := plugin.NewContext(
+			ctx, sink, sink, host, nil, wd, nil, false,
+			nil, schema.NewLoaderServerFromHost)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create plugin context: %w", err)
+		}
+		defer pctx.Close()
+
+		loadConverter := func(name string) (plugin.Converter, error) {
+			log := func(sev diag.Severity, msg string) {
+				pctx.Diag.Logf(sev, diag.RawMessage("", msg))
+			}
+			return loadConverterPlugin(pctx, name, log)
+		}
+
+		p, err := pluginFromSource(ctx, pctx, wd, pkgargs[0])
 		if err != nil {
 			return nil, nil, fmt.Errorf("load provider: %w", err)
 		}
@@ -166,12 +201,14 @@ func NewDoCmd(
 		}
 
 		subcmd := (&packageCommand{
-			args:        pargs,
-			evalContext: evalContext,
-			provider:    p,
-			spec:        boundpkg,
-			dryrun:      dryrun,
-			showSecrets: showSecrets,
+			args:         pargs,
+			evalContext:  evalContext,
+			converter:    loadConverter,
+			loaderTarget: pctx.Host.LoaderAddr(),
+			provider:     p,
+			spec:         boundpkg,
+			dryrun:       dryrun,
+			showSecrets:  showSecrets,
 		}).newCommand()
 		subcmd.SetContext(cmd.Context())
 		subcmd.SetOut(cmd.OutOrStdout())
@@ -289,6 +326,8 @@ Provider configuration can be supplied via:
 type packageCommand struct {
 	args         []string
 	evalContext  functionEvalContext
+	converter    func(string) (plugin.Converter, error)
+	loaderTarget string
 	provider     plugin.Provider
 	providerFile string
 	spec         *schema.Package

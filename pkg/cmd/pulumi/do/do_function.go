@@ -15,6 +15,7 @@
 package do
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -224,6 +225,15 @@ func evaluatePclFile(
 		input = f
 	}
 
+	return evaluatePcl(input, filename, fileType, bind, evalContext)
+}
+
+func evaluatePcl(
+	input io.Reader,
+	filename, fileType string,
+	bind func(*hclsyntax.File) ([]*model.Attribute, model.Type, []*schema.Property, hcl.Diagnostics),
+	evalContext functionEvalContext,
+) (resource.PropertyMap, error) {
 	parser := hclsyntax.NewParser()
 	if err := parser.ParseFile(input, filename); err != nil {
 		return nil, fmt.Errorf("parse input: %w", err)
@@ -288,6 +298,48 @@ func evaluatePclFunctionFile(
 		return attrs, inputType, properties, diags
 	}
 	return evaluatePclFile(path, fileType, bind, evalContext)
+}
+
+func evaluateFunctionFile(
+	ctx context.Context, path, fileType, inputFormat string, fn *schema.Function, evalContext functionEvalContext,
+	loadConverter func(string) (plugin.Converter, error), loaderTarget string,
+) (resource.PropertyMap, error) {
+	switch inputFormat {
+	case "", "pcl":
+		return evaluatePclFunctionFile(path, fileType, fn, evalContext)
+	default:
+		converter, err := loadConverter(inputFormat)
+		if err != nil {
+			return nil, fmt.Errorf("load %s input converter: %w", inputFormat, err)
+		}
+		defer contract.IgnoreClose(converter)
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read %s file: %w", fileType, err)
+		}
+		resp, err := converter.GenerateSnippet(ctx, &plugin.GenerateSnippetRequest{
+			Filename:     path,
+			Source:       source,
+			TargetLoader: loaderTarget,
+			Token:        fn.Token,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("generate PCL from %s file: %w", fileType, err)
+		}
+		if resp.Diagnostics.HasErrors() {
+			return nil, resp.Diagnostics
+		}
+
+		bind := func(file *hclsyntax.File) ([]*model.Attribute, model.Type, []*schema.Property, hcl.Diagnostics) {
+			attrs, inputType, diags := pcl.BindFunction(file, fn)
+			var properties []*schema.Property
+			if fn.Inputs != nil {
+				properties = fn.Inputs.Properties
+			}
+			return attrs, inputType, properties, diags
+		}
+		return evaluatePcl(bytes.NewReader(resp.Source), resp.Filename, fileType, bind, evalContext)
+	}
 }
 
 func evaluatePclResourceFile(
@@ -370,6 +422,7 @@ func (pc *packageCommand) newFunctionCommand(fn *schema.Function) *cobra.Command
 	}
 
 	var inputFile string
+	var inputFormat string
 
 	cmd := &cobra.Command{
 		Use:     name,
@@ -406,7 +459,8 @@ func (pc *packageCommand) newFunctionCommand(fn *schema.Function) *cobra.Command
 				return fmt.Errorf("configure provider: %w", err)
 			}
 
-			inputs, err := evaluatePclFunctionFile(inputFile, "input", fn, pc.evalContext)
+			inputs, err := evaluateFunctionFile(
+				cmd.Context(), inputFile, "input", inputFormat, fn, pc.evalContext, pc.converter, pc.loaderTarget)
 			if err != nil {
 				return fmt.Errorf("parse input file: %w", err)
 			}
@@ -445,6 +499,7 @@ func (pc *packageCommand) newFunctionCommand(fn *schema.Function) *cobra.Command
 		},
 	}
 
+	cmd.Flags().StringVar(&inputFormat, "input", "pcl", "Input file format")
 	cmd.Flags().StringVar(&inputFile, "input-file", "", "Path to a file containing function inputs")
 
 	return cmd

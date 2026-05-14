@@ -56,10 +56,25 @@ type ConvertProgramResponse struct {
 	Diagnostics hcl.Diagnostics
 }
 
+type GenerateSnippetRequest struct {
+	Filename     string
+	Source       []byte
+	TargetLoader string
+	Token        string
+}
+
+type GenerateSnippetResponse struct {
+	Diagnostics hcl.Diagnostics
+	Filename    string
+	Source      []byte
+}
+
 type Converter interface {
 	io.Closer
 
 	ConvertState(ctx context.Context, req *ConvertStateRequest) (*ConvertStateResponse, error)
 
 	ConvertProgram(ctx context.Context, req *ConvertProgramRequest) (*ConvertProgramResponse, error)
+
+	GenerateSnippet(ctx context.Context, req *GenerateSnippetRequest) (*GenerateSnippetResponse, error)
 }
