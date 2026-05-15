@@ -17,6 +17,7 @@ package httpstate
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,8 @@ import (
 	"github.com/pulumi/pulumi/pkg/v3/backend/display"
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate/client"
 	"github.com/pulumi/pulumi/pkg/v3/engine"
+	"github.com/pulumi/pulumi/pkg/v3/resource/deploy"
+	"github.com/pulumi/pulumi/pkg/v3/resource/stack"
 	"github.com/pulumi/pulumi/pkg/v3/secrets/b64"
 	pkgWorkspace "github.com/pulumi/pulumi/pkg/v3/workspace"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
@@ -39,6 +42,8 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/diag/colors"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/env"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/promise"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/config"
 	ptesting "github.com/pulumi/pulumi/sdk/v3/go/common/testing"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/testing/diagtest"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
@@ -1529,4 +1534,99 @@ func TestCreateNeoTaskOnError(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 	})
+}
+
+func TestRunEngineActionPropagatesSnapshotJournalerError(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	mgr := failingSecretsManager{err: errors.New("encrypt boom")}
+	stackName, err := tokens.ParseStackName("stack")
+	require.NoError(t, err)
+
+	deployment, err := stack.SerializeUntypedDeployment(ctx, &deploy.Snapshot{
+		Resources: []*resource.State{{
+			Type: tokens.Type("test:index:Resource"),
+			URN: resource.NewURN(
+				stackName.Q(), tokens.PackageName("project"), "",
+				tokens.Type("test:index:Resource"), "resource"),
+			Outputs: resource.PropertyMap{
+				"secret": resource.MakeSecret(resource.NewProperty("value")),
+			},
+		}},
+	}, &stack.SerializeOptions{ShowSecrets: true})
+	require.NoError(t, err)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/stacks/owner/project/stack/export":
+			require.NoError(t, json.NewEncoder(w).Encode(apitype.ExportStackResponse(*deployment)))
+		case "/api/stacks/owner/project/stack":
+			require.NoError(t, json.NewEncoder(w).Encode(apitype.Stack{
+				OrgName: "owner", ProjectName: "project", StackName: stackName.Q(),
+			}))
+		default:
+			http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	sink := diag.DefaultSink(io.Discard, io.Discard, diag.FormatOptions{Color: colors.Never})
+	apiClient := client.NewClient(server.URL, "token", false, sink).WithHTTPClient(server.Client())
+	b := &cloudBackend{
+		d:      sink,
+		url:    server.URL,
+		client: apiClient,
+		capabilities: promise.Run(func() (apitype.Capabilities, error) {
+			return apitype.Capabilities{}, nil
+		}),
+	}
+	stackRef := cloudBackendReference{
+		name:    stackName,
+		project: tokens.Name("project"),
+		owner:   "owner",
+		b:       b,
+	}
+
+	op := backend.UpdateOperation{
+		Proj: &workspace.Project{
+			Name:    tokens.PackageName("project"),
+			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
+		},
+		Opts:           backend.UpdateOptions{Display: display.Options{Color: colors.Never}},
+		SecretsManager: mgr,
+		StackConfiguration: backend.StackConfiguration{
+			Config:    config.Map{},
+			Decrypter: mgr.Decrypter(),
+		},
+	}
+	update := client.UpdateIdentifier{
+		StackIdentifier: client.StackIdentifier{Owner: "owner", Project: "project", Stack: stackName},
+		UpdateID:        "update-id",
+	}
+
+	var runErr error
+	require.NotPanics(t, func() {
+		_, _, runErr = b.runEngineAction(
+			ctx, apitype.UpdateUpdate, stackRef, op, update,
+			"lease-token", "", nil, false, 0,
+		)
+	})
+	require.Error(t, runErr)
+	require.ErrorContains(t, runErr, "encrypt boom")
+}
+
+type failingSecretsManager struct{ err error }
+
+func (m failingSecretsManager) Type() string                { return "failing" }
+func (m failingSecretsManager) State() json.RawMessage      { return nil }
+func (m failingSecretsManager) Encrypter() config.Encrypter { return m }
+func (m failingSecretsManager) Decrypter() config.Decrypter { return config.NopDecrypter }
+
+func (m failingSecretsManager) EncryptValue(context.Context, string) (string, error) {
+	return "", m.err
+}
+
+func (m failingSecretsManager) BatchEncrypt(context.Context, []string) ([]string, error) {
+	return nil, m.err
 }
