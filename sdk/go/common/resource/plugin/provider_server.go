@@ -651,9 +651,49 @@ func (p *providerServer) List(
 	req *pulumirpc.ListRequest,
 	stream grpc.ServerStreamingServer[pulumirpc.ListResponse],
 ) error {
-	_ = req
-	_ = stream
-	return status.Error(codes.Unimplemented, "List is not yet implemented")
+	query, err := UnmarshalProperties(req.GetQuery(), p.unmarshalOptions("list.query", false))
+	if err != nil {
+		return err
+	}
+	response, err := p.provider.List(stream.Context(), ListRequest{
+		Token:             tokens.Type(req.GetToken()),
+		Query:             query,
+		Limit:             req.GetLimit(),
+		PageSize:          req.GetPageSize(),
+		ContinuationToken: req.GetContinuationToken(),
+	})
+	if err != nil {
+		return err
+	}
+	if response.Computed {
+		return stream.Send(&pulumirpc.ListResponse{
+			Response: &pulumirpc.ListResponse_Computed_{
+				Computed: &pulumirpc.ListResponse_Computed{},
+			},
+		})
+	}
+	for _, result := range response.Results {
+		if err := stream.Send(&pulumirpc.ListResponse{
+			Response: &pulumirpc.ListResponse_Result_{
+				Result: &pulumirpc.ListResponse_Result{
+					Id:   string(result.ID),
+					Name: result.Name,
+				},
+			},
+		}); err != nil {
+			return err
+		}
+	}
+	if response.ContinuationToken != "" {
+		return stream.Send(&pulumirpc.ListResponse{
+			Response: &pulumirpc.ListResponse_Continuation_{
+				Continuation: &pulumirpc.ListResponse_Continuation{
+					ContinuationToken: response.ContinuationToken,
+				},
+			},
+		})
+	}
+	return nil
 }
 
 func (p *providerServer) Update(ctx context.Context, req *pulumirpc.UpdateRequest) (*pulumirpc.UpdateResponse, error) {

@@ -339,6 +339,25 @@ type DeleteResponse struct {
 	Status resource.Status
 }
 
+type ListRequest struct {
+	Token             tokens.Type
+	Query             resource.PropertyMap
+	Limit             int64
+	PageSize          int64
+	ContinuationToken string
+}
+
+type ListResult struct {
+	ID   resource.ID
+	Name string
+}
+
+type ListResponse struct {
+	Computed          bool
+	Results           []ListResult
+	ContinuationToken string
+}
+
 type ConstructRequest struct {
 	Info    ConstructInfo
 	Type    tokens.Type
@@ -448,6 +467,8 @@ type Provider interface {
 	Update(context.Context, UpdateRequest) (UpdateResponse, error)
 	// Delete tears down an existing resource. The inputs and outputs are the last recorded ones from state.
 	Delete(context.Context, DeleteRequest) (DeleteResponse, error)
+	// List enumerates existing resources for a resource type.
+	List(context.Context, ListRequest) (ListResponse, error)
 
 	// Construct creates a new component resource.
 	Construct(context.Context, ConstructRequest) (ConstructResponse, error)

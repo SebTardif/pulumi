@@ -1032,6 +1032,10 @@ func (r *Registry) Delete(_ context.Context, req plugin.DeleteRequest) (plugin.D
 	return plugin.DeleteResponse{}, nil
 }
 
+func (r *Registry) List(context.Context, plugin.ListRequest) (plugin.ListResponse, error) {
+	return plugin.ListResponse{}, errors.New("provider resources may not be listed")
+}
+
 func (r *Registry) Read(context.Context, plugin.ReadRequest) (plugin.ReadResponse, error) {
 	return plugin.ReadResponse{}, errors.New("provider resources may not be read")
 }

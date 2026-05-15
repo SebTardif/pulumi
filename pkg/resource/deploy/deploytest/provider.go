@@ -52,6 +52,7 @@ type Provider struct {
 	UpdateF       func(context.Context, plugin.UpdateRequest) (plugin.UpdateResponse, error)
 	DeleteF       func(context.Context, plugin.DeleteRequest) (plugin.DeleteResponse, error)
 	ReadF         func(context.Context, plugin.ReadRequest) (plugin.ReadResponse, error)
+	ListF         func(context.Context, plugin.ListRequest) (plugin.ListResponse, error)
 	ConstructF    func(context.Context, plugin.ConstructRequest, *ResourceMonitor) (plugin.ConstructResponse, error)
 	InvokeF       func(context.Context, plugin.InvokeRequest) (plugin.InvokeResponse, error)
 	CallF         func(context.Context, plugin.CallRequest, *ResourceMonitor) (plugin.CallResponse, error)
@@ -177,6 +178,13 @@ func (prov *Provider) Delete(ctx context.Context, req plugin.DeleteRequest) (plu
 		return plugin.DeleteResponse{Status: resource.StatusOK}, nil
 	}
 	return prov.DeleteF(ctx, req)
+}
+
+func (prov *Provider) List(ctx context.Context, req plugin.ListRequest) (plugin.ListResponse, error) {
+	if prov.ListF == nil {
+		return plugin.ListResponse{}, nil
+	}
+	return prov.ListF(ctx, req)
 }
 
 func (prov *Provider) Read(ctx context.Context, req plugin.ReadRequest) (plugin.ReadResponse, error) {

@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1811,6 +1812,71 @@ func (p *provider) Delete(ctx context.Context, req DeleteRequest) (DeleteRespons
 
 	logging.V(7).Infof("%s success", label)
 	return DeleteResponse{Status: resource.StatusOK}, err
+}
+
+func (p *provider) List(ctx context.Context, req ListRequest) (ListResponse, error) {
+	label := fmt.Sprintf("%s.List(%s)", p.label(), req.Token)
+	logging.V(7).Infof("%s executing (#query=%d)", label, len(req.Query))
+
+	client := p.clientRaw
+	protocol, pcfg, err := p.getPluginConfig(context.Background())
+	if err != nil {
+		return ListResponse{}, err
+	}
+	if !pcfg.known {
+		return ListResponse{Computed: true}, nil
+	}
+
+	query, err := MarshalProperties(req.Query, MarshalOptions{
+		Label:         label + ".query",
+		KeepSecrets:   protocol.acceptSecrets,
+		KeepResources: protocol.acceptResources,
+		PropagateNil:  true,
+	})
+	if err != nil {
+		return ListResponse{}, err
+	}
+
+	stream, err := client.List(p.requestContext(), &pulumirpc.ListRequest{
+		Token:             string(req.Token),
+		Query:             query,
+		Limit:             req.Limit,
+		PageSize:          req.PageSize,
+		ContinuationToken: req.ContinuationToken,
+	})
+	if err != nil {
+		rpcError := rpcerror.Convert(err)
+		logging.V(7).Infof("%s failed: err=%v", label, rpcError.Message())
+		return ListResponse{}, rpcError
+	}
+
+	var response ListResponse
+	for {
+		item, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			rpcError := rpcerror.Convert(err)
+			logging.V(7).Infof("%s failed: err=%v", label, rpcError.Message())
+			return ListResponse{}, rpcError
+		}
+
+		switch item.GetResponse().(type) {
+		case *pulumirpc.ListResponse_Computed_:
+			response.Computed = true
+		case *pulumirpc.ListResponse_Result_:
+			result := item.GetResult()
+			response.Results = append(response.Results, ListResult{
+				ID:   resource.ID(result.GetId()),
+				Name: result.GetName(),
+			})
+		case *pulumirpc.ListResponse_Continuation_:
+			response.ContinuationToken = item.GetContinuation().GetContinuationToken()
+		}
+	}
+
+	return response, nil
 }
 
 // Construct creates a new component resource from the given type, name, parent, options, and inputs, and returns

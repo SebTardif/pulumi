@@ -271,6 +271,10 @@ func (p *builtinProvider) Delete(_ context.Context, req plugin.DeleteRequest) (p
 	return plugin.DeleteResponse{Status: resource.StatusOK}, nil
 }
 
+func (p *builtinProvider) List(context.Context, plugin.ListRequest) (plugin.ListResponse, error) {
+	return plugin.ListResponse{}, errors.New("builtin resources may not be listed")
+}
+
 func (p *builtinProvider) Read(_ context.Context, req plugin.ReadRequest) (plugin.ReadResponse, error) {
 	contract.Requiref(req.URN != "", "urn", "must not be empty")
 	contract.Requiref(req.ID != "", "id", "must not be empty")
